@@ -1,1 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Region X SBM Digital Twin | DO 007, s. 2024</title>
+    <!-- Libraries: Leaflet (Maps), Chart.js (Charts), Tailwind (Design) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        #map { height: calc(100vh - 64px); width: 100%; z-index: 0; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        .legend { background: white; padding: 10px; border-radius: 8px; box-shadow: 0 0 15px rgba(0,0,0,0.2); line-height: 24px; }
+        .legend i { width: 14px; height: 14px; float: left; margin-right: 8px; border-radius: 50%; }
+    </style>
+</head>
+<body class="bg-gray-100">
 
+    <!-- Header -->
+    <header class="h-16 bg-blue-900 text-white flex items-center justify-between px-6 shadow-md z-10 relative">
+        <div>
+            <h1 class="text-xl font-bold">DepEd Region X — SBM Digital Twin</h1>
+            <p class="text-xs text-blue-200">Based on DO 007, s. 2024 (Revised SBM System)</p>
+        </div>
+        <div class="text-right">
+            <span id="schoolCount" class="font-bold text-yellow-400 text-lg">0</span>
+            <span class="text-sm text-blue-200"> Schools Monitored (Sample Data)</span>
+        </div>
+    </header>
+
+    <div class="flex relative">
+        <!-- LEFT: The Spatial Twin (Map) -->
+        <div id="map"></div>
+
+        <!-- RIGHT: The Data Twin (Dashboard Sidebar) -->
+        <div class="w-[400px] h-[calc(100vh-64px)] bg-white shadow-2xl z-10 overflow-y-auto border-l border-gray-300 flex flex-col">
+            
+            <div class="p-5 border-b bg-gray-50">
+                <h2 id="schoolName" class="text-lg font-bold text-gray-800">Division / Regional View</h2>
+                <p id="schoolMeta" class="text-sm text-gray-500">Click a school on the map to view its Twin Profile</p>
+                <span id="sbmBadge" class="inline-block mt-2 px-3 py-1 rounded-full text-white text-xs font-bold bg-gray-400">AWAITING SELECTION</span>
+            </div>
+
+            <!-- Radar Chart: The 6 SBM Dimensions -->
+            <div class="p-5 border-b">
+                <h3 class="text-sm font-bold text-gray-600 uppercase mb-2">6 SBM Dimensions (Avg Score)</h3>
+                <canvas id="radarChart" height="250"></canvas>
+            </div>
+
+            <!-- Dimension Details -->
+            <div class="p-5" id="dimensionDetails">
+                <h3 class="text-sm font-bold text-gray-600 uppercase mb-2">Dimension Averages</h3>
+                <ul id="dimList" class="space-y-2 text-sm text-gray-700">
+                    <!-- Populated by JS -->
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        // ==========================================
+        // SAMPLE DATA EXTRACTED FROM YOUR EXCEL FILE
+        // Format: scores: [8x CT, 10x LE, 4x LG, 6x AC, 7x HR, 7x FR]
+        // ==========================================
+        const schoolsData = [
+            { id: "126618", name: "Abyawan ES", division: "Bukidnon", type: "Elementary", lat: 8.425296, lng: 124.93708, scores: [0,1,0,0,2,2,3,1, 0,2,3,2,2,3,3,2,1,2, 3,3,2,1, 0,2,2,1,2,0, 3,2,3,3,2,2,1, 2,3,1,0,1,3,3] },
+            { id: "126619", name: "Alae CES", division: "Bukidnon", type: "Elementary", lat: 8.419722222, lng: 124.8136111, scores: [0,2,2,1,2,1,0,2, 0,1,1,2,2,0,2,0,0,2, 3,3,3,0, 3,0,2,3,0,1, 2,0,3,3,1,2,0, 2,3,3,1,3,3,3] },
+            { id: "127947", name: "Aquino ES", division: "Cagayan de Oro City", type: "Elementary", lat: 8.4920024, lng: 124.7424989, scores: [3,2,0,2,1,3,2,0, 2,2,1,2,3,0,3,1,3,3, 0,1,1,3, 2,3,1,3,2,0, 1,1,3,3,0,1,1, 3,1,2,3,0,3,3] },
+            { id: "128162", name: "Baybay ES", division: "Ozamis City", type: "Elementary", lat: 8.141388889, lng: 123.8461111, scores: [1,2,2,1,1,0,0,3, 0,0,3,1,1,2,0,0,3,1, 0,1,3,3, 2,3,1,3,2,0, 1,1,2,2,0,2,0, 1,3,0,3,1,3,2] },
+            { id: "126864", name: "Araneta ES", division: "Valencia City", type: "Elementary", lat: 7.917049, lng: 125.152504, scores: [3,2,2,1,3,1,3,2, 0,3,1,3,1,2,1,0,3,2, 2,1,3,0, 0,0,2,2,2,0, 1,1,2,2,0,2,0, 1,3,0,3,1,3,2] },
+            { id: "128238", name: "Aquino ES", division: "Tangub City", type: "Elementary", lat: 8.06085, lng: 123.711685, scores: [3,2,0,2,1,3,2,0, 2,2,1,2,3,0,3,1,3,3, 0,1,1,3, 2,3,1,3,2,0, 1,1,3,3,0,1,1, 3,1,2,3,0,3,3] },
+            { id: "126905", name: "Agoho Elementary School", division: "Camiguin", type: "Elementary", lat: 9.246111111, lng: 124.6697222, scores: [2,0,3,2,2,1,3,1, 0,1,1,0,1,0,0,2,1,3, 1,3,0,3, 2,1,3,0,2,0, 1,3,0,3,1,3,2, 3,1,2,3,0,3,3] }
+        ];
+
+        const dims = ["CT (Curriculum)", "LE (Learning Env)", "LG (Leadership)", "AC (Governance)", "HR (Human Resource)", "FR (Finance)"];
+
+        // ==========================================
+        // LOGIC: Calculate averages based on DO 007 s. 2024
+        // ==========================================
+        function getAverages(scores) {
+            const avg = arr => arr.reduce((a,b) => a+b, 0) / arr.length;
+            return [
+                avg(scores.slice(0, 8)),   // CT
+                avg(scores.slice(8, 18)),  // LE
+                avg(scores.slice(18, 22)), // LG
+                avg(scores.slice(22, 28)), // AC
+                avg(scores.slice(28, 35)), // HR
+                avg(scores.slice(35, 42))  // FR
+            ];
+        }
+
+        function getSBMLevel(avgScore) {
+            if (avgScore >= 2.5) return { label: "Always Manifested", color: "#10b981" };      // Green
+            if (avgScore >= 2.0) return { label: "Frequently Manifested", color: "#f59e0b" }; // Yellow/Amber
+            if (avgScore >= 1.0) return { label: "Rarely Manifested", color: "#f97316" };     // Orange
+            return { label: "Not Yet Manifested", color: "#ef4444" };                         // Red
+        }
+
+        // ==========================================
+        // INITIALIZE MAP (The Spatial Twin)
+        // ==========================================
+        const map = L.map('map').setView([8.1, 124.5], 8); // Centered on Northern Mindanao
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; OpenStreetMap &copy; CARTO'
+        }).addTo(map);
+
+        // Map Legend
+        const legend = L.control({position: 'bottomright'});
+        legend.onAdd = function (map) {
+            const div = L.DomUtil.create('div', 'legend');
+            div.innerHTML = '<strong>SBM Levels</strong><br>' +
+                '<i style="background:#10b981"></i> Always (2.5 - 3.0)<br>' +
+                '<i style="background:#f59e0b"></i> Frequently (2.0 - 2.4)<br>' +
+                '<i style="background:#f97316"></i> Rarely (1.0 - 1.9)<br>' +
+                '<i style="background:#ef4444"></i> Not Yet (0.0 - 0.9)';
+            return div;
+        };
+        legend.addTo(map);
+
+        // ==========================================
+        // INITIALIZE RADAR CHART (The Data Twin)
+        // ==========================================
+        const ctx = document.getElementById('radarChart').getContext('2d');
+        let radarChart = new Chart(ctx, {
+            type: 'radar',
+            data: {
+                labels: dims,
+                datasets: [{
+                    label: 'Average Score',
+                    data: [0,0,0,0,0,0],
+                    backgroundColor: 'rgba(37, 99, 235, 0.2)',
+                    borderColor: 'rgba(37, 99, 235, 1)',
+                    pointBackgroundColor: 'rgba(37, 99, 235, 1)'
+                }]
+            },
+            options: {
+                scales: { r: { min: 0, max: 3, ticks: { stepSize: 1 } } },
+                plugins: { legend: { display: false } }
+            }
+        });
+
+        // ==========================================
+        // PLOT SCHOOLS & INTERACTIVITY
+        // ==========================================
+        document.getElementById('schoolCount').innerText = schoolsData.length;
+
+        schoolsData.forEach(school => {
+            if (!school.lat || !school.lng) return; // Skip schools missing coordinates for the map
+
+            const avgs = getAverages(school.scores);
+            const overallAvg = avgs.reduce((a,b) => a+b, 0) / 6;
+            const level = getSBMLevel(overallAvg);
+
+            const marker = L.circleMarker([school.lat, school.lng], {
+                radius: 8, fillColor: level.color, color: "#fff", weight: 1, fillOpacity: 0.9
+            }).addTo(map);
+
+            marker.bindTooltip(school.name);
+
+            // When a school is clicked, update its Data Twin in the sidebar
+            marker.on('click', () => {
+                document.getElementById('schoolName').innerText = school.name;
+                document.getElementById('schoolMeta').innerText = `${school.id} • ${school.division} • ${school.type}`;
+                
+                const badge = document.getElementById('sbmBadge');
+                badge.innerText = `${level.label} (${overallAvg.toFixed(2)})`;
+                badge.style.backgroundColor = level.color;
+
+                radarChart.data.datasets[0].data = avgs.map(v => Number(v.toFixed(2)));
+                radarChart.update();
+
+                // Update Dimension List
+                const list = document.getElementById('dimList');
+                list.innerHTML = avgs.map((v, i) => {
+                    const dimLevel = getSBMLevel(v);
+                    return `<li class="flex justify-between border-b pb-1">
+                                <span>${dims[i]}</span>
+                                <span class="font-bold" style="color:${dimLevel.color}">${v.toFixed(2)}</span>
+                            </li>`;
+                }).join('');
+                
+                map.flyTo([school.lat, school.lng], 11);
+            });
+        });
+    </script>
+</body>
+</html>
